@@ -1,0 +1,567 @@
+{
+  "name": "Talexora Daily Marketing & Outreach",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": "interval",
+        "interval": 1,
+        "unit": "days"
+      },
+      "id": "e2ba30c0-6d4b-4c57-a36c-9a4f47ef9d6a",
+      "name": "Schedule Trigger (9AM Daily)",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.1,
+      "position": [
+        200,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "url": "https://trends.google.com/trends/trendingsearches/daily/rss?geo=US",
+        "options": {}
+      },
+      "id": "180a52df-60e1-45bd-a28a-78b1d9bf5c11",
+      "name": "Get Google Trends",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        400,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const items = $input.all();\nconst xmlString = items[0].json.data;\n\n// Basic regex parsing for XML rss items to avoid external dependencies\nconst matches = xmlString.match(/<title>([^<]+)<\\/title>/g) || [];\nconst titles = matches\n  .map(m => m.replace(/<\\/?title>/g, '').trim())\n  .filter(t => t !== \"Daily Search Trends\" && t !== \"Google Trends\");\n\nif (titles.length === 0) {\n  return [{ json: { trend: \"creative portfolios\" } }];\n}\n\n// Pick a random trend\nconst randomTrend = titles[Math.floor(Math.random() * titles.length)];\nreturn [{ json: { trend: randomTrend } }];"
+      },
+      "id": "31ea2f7d-cd3f-42e1-a079-0db9486c8f8b",
+      "name": "Parse & Pick Random Trend",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        600,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "specifyHeaders": {
+          "keyval": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "={\n  \"model\": \"nex-agi/nex-n2-pro:free\",\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are an expert growth marketer for Talexora (talexora.com), a web platform where creative professionals (designers, developers, artists) build interactive proof-of-work portfolios to stand out and showcase what they actually build instead of sending traditional resumes.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"Write two distinct high-engagement social media post variations (caption + hashtags) relating the daily trend '{{ $json.trend }}' to why traditional resumes are dead and why proof-of-work portfolios are the future. Keep the tone bold, professional, and inspiring. Also provide a 5-word catchy headline to overlay on an image. Output ONLY as a raw JSON object with this schema: { \\\"variation1\\\": { \\\"caption\\\": \\\"...\\\" }, \\\"variation2\\\": { \\\"caption\\\": \\\"...\\\" }, \\\"headline\\\": \\\"...\\\", \\\"outreach_search_term\\\": \\\"...\\\" }\"\n    }\n  ]\n}"
+      },
+      "id": "b1b0bc6d-4780-482a-bf39-7756f7ef04d2",
+      "name": "OpenRouter AI - Generate Copy",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        800,
+        300
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "openrouter-api-key-id",
+          "name": "OpenRouter API Key Header"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const responseText = $input.first().json.choices[0].message.content;\nlet parsedData;\ntry {\n  // Clean response of potential markdown code blocks\n  const cleanText = responseText.replace(/```json|```/g, '').trim();\n  parsedData = JSON.parse(cleanText);\n} catch (e) {\n  parsedData = {\n    variation1: { caption: \"Traditional resumes are dead. Build proof of work on Talexora.\" },\n    variation2: { caption: \"Stop telling people what you can do. Show them on Talexora.\" },\n    headline: \"Show Proof of Work\",\n    outreach_search_term: \"UI UX Designer\"\n  };\n}\n\n// Pick variation 1 or 2 randomly for distribution\nconst selectedVar = Math.random() > 0.5 ? parsedData.variation1 : parsedData.variation2;\n\nreturn [{\n  json: {\n    caption: selectedVar.caption,\n    headline: parsedData.headline.toUpperCase(),\n    outreach_search_term: parsedData.outreach_search_term || \"creative designer\"\n  }\n}];"
+      },
+      "id": "97e0cda7-82ba-4c28-bb88-3489feea71d1",
+      "name": "Clean & Parse AI Output",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1000,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "list",
+        "fileSelector": "/data/talexora-assets/*"
+      },
+      "id": "b9f93da1-6f4a-4a2e-8b93-8472fde2a93b",
+      "name": "List Screenshots from Disk",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        1200,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const files = $input.all();\nif (files.length === 0) {\n  throw new Error(\"No screenshots found in /data/talexora-assets/\");\n}\n\n// Select a random file\nconst randomFile = files[Math.floor(Math.random() * files.length)];\nreturn [{\n  json: {\n    filePath: randomFile.json.filePath,\n    fileName: randomFile.json.fileName\n  }\n}];"
+      },
+      "id": "2a1a4fb1-c3b2-4cd8-89c0-547e1de2b1aa",
+      "name": "Select Random Screenshot",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        1400,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "filePath": "={{ $json.filePath }}"
+      },
+      "id": "8b8e0da2-cd4b-4b2a-89a1-7789fde3b1ba",
+      "name": "Read Image File",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        1600,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operations": {
+          "text": [
+            {
+              "text": "={{ $('Clean & Parse AI Output').item.json.headline }}",
+              "font": "SANS_32_WHITE",
+              "positionX": 50,
+              "positionY": 80
+            }
+          ]
+        }
+      },
+      "id": "4e7ba9cf-f9da-4a11-bda1-7756fde01b2a",
+      "name": "Overlay Heading on Screenshot",
+      "type": "n8n-nodes-base.editImage",
+      "typeVersion": 1,
+      "position": [
+        1800,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "filePath": "={{ '/data/marketing/post_' + $executionId + '.png' }}",
+        "fileContent": "data"
+      },
+      "id": "e4ba39cf-fa0b-47ea-bd38-9e67a0ee123b",
+      "name": "Write Image to Nginx Folder",
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1,
+      "position": [
+        2000,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "mode": "runOnceForEachItem",
+        "jsCode": "const publicUrl = `http://102.213.182.101/marketing/post_${$executionId}.png`;\nreturn [{\n  json: {\n    imageUrl: publicUrl\n  }\n}];"
+      },
+      "id": "a9ea8df1-fbca-44ea-8bca-7789fde3b3aa",
+      "name": "Generate Nginx Public URL",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [
+        2200,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v18.0/me/photos",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "sendBody": true,
+        "specifyBody": "={\n  \"url\": \"{{ $json.imageUrl }}\",\n  \"caption\": \"{{ $('Clean & Parse AI Output').item.json.caption }}\"\n}"
+      },
+      "id": "c1ba8fe0-c8ab-40a1-a20c-7756fde0123b",
+      "name": "Post to Facebook Page",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        2400,
+        200
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "facebook-access-token-id",
+          "name": "Facebook Access Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v18.0/YOUR_INSTAGRAM_BUSINESS_ACCOUNT_ID/media",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "sendBody": true,
+        "specifyBody": "={\n  \"image_url\": \"{{ $json.imageUrl }}\",\n  \"caption\": \"{{ $('Clean & Parse AI Output').item.json.caption }}\"\n}"
+      },
+      "id": "d1ba8fe1-d8ab-40a1-b20c-7756fde0123c",
+      "name": "Instagram - Create Media",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        2400,
+        400
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "facebook-access-token-id",
+          "name": "Facebook Access Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.facebook.com/v18.0/YOUR_INSTAGRAM_BUSINESS_ACCOUNT_ID/media_publish",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "sendBody": true,
+        "specifyBody": "={\n  \"creation_id\": \"{{ $json.id }}\"\n}"
+      },
+      "id": "f1ba8fe2-e8ab-40a1-c20c-7756fde0123d",
+      "name": "Instagram - Publish Media",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        2600,
+        400
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "facebook-access-token-id",
+          "name": "Facebook Access Token"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "method": "GET",
+        "url": "https://api.github.com/search/users?q={{ $('Clean & Parse AI Output').item.json.outreach_search_term }}+location:Europe&per_page=10",
+        "sendHeaders": true,
+        "specifyHeaders": {
+          "keyval": [
+            {
+              "name": "User-Agent",
+              "value": "n8n-workflow-talexora"
+            }
+          ]
+        }
+      },
+      "id": "e2ba39cf-fa0b-47ea-bd38-9e67a0ee124c",
+      "name": "Outreach - Search GitHub Creatives",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        2800,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "fieldToSplit": "items",
+        "options": {}
+      },
+      "id": "8ba12da2-cd4b-4b2a-89a1-7789fde3b2cb",
+      "name": "Outreach - Split List of Users",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 1.1,
+      "position": [
+        3000,
+        300
+      ]
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "authentication": "genericCredentialType",
+        "genericAuthType": "httpHeaderAuth",
+        "sendHeaders": true,
+        "specifyHeaders": {
+          "keyval": [
+            {
+              "name": "Content-Type",
+              "value": "application/json"
+            }
+          ]
+        },
+        "sendBody": true,
+        "specifyBody": "={\n  \"model\": \"nex-agi/nex-n2-pro:free\",\n  \"messages\": [\n    {\n      \"role\": \"system\",\n      \"content\": \"You are an outbound recruiter for Talexora (talexora.com). You write personalized, ultra-short, friendly cold outreach messages to pitch the platform to creative software developers.\"\n    },\n    {\n      \"role\": \"user\",\n      \"content\": \"Write a highly personalized, short outreach message (max 3 sentences) to a creative developer named '{{ $json.login }}' (Github URL: {{ $json.html_url }}). Invite them to check out Talexora to build a visual, proof-of-work portfolio that gets them hired. Do not sound spammy, be genuinely appreciative of their profile.\"\n    }\n  ]\n}"
+      },
+      "id": "d1ba8fe0-c8ab-40a1-a20c-7756fde0124f",
+      "name": "OpenRouter AI - Custom Outreach",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.1,
+      "position": [
+        3200,
+        300
+      ],
+      "credentials": {
+        "httpHeaderAuth": {
+          "id": "openrouter-api-key-id",
+          "name": "OpenRouter API Key Header"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "append",
+        "documentId": {
+          "__rl": true,
+          "value": "YOUR_GOOGLE_SHEET_ID_HERE",
+          "mode": "id"
+        },
+        "sheetName": "Outreach Logs",
+        "columns": {
+          "mappingMode": "defineBelow",
+          "value": {
+            "Date": "={{ new Date().toISOString().split('T')[0] }}",
+            "Username": "={{ $('Outreach - Split List of Users').item.json.login }}",
+            "ProfileUrl": "={{ $('Outreach - Split List of Users').item.json.html_url }}",
+            "CustomMessage": "={{ $json.choices[0].message.content }}",
+            "Status": "Draft"
+          },
+          "matchingColumns": []
+        },
+        "options": {}
+      },
+      "id": "c1ba8fe0-c8ab-40a1-a20c-7756fde0125a",
+      "name": "Log Outreach to Google Sheets",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4.5,
+      "position": [
+        3400,
+        300
+      ],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "google-sheets-oauth2-id",
+          "name": "Google Sheets OAuth"
+        }
+      }
+    }
+  ],
+  "connections": {
+    "Schedule Trigger (9AM Daily)": {
+      "main": [
+        [
+          {
+            "node": "Get Google Trends",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Google Trends": {
+      "main": [
+        [
+          {
+            "node": "Parse & Pick Random Trend",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse & Pick Random Trend": {
+      "main": [
+        [
+          {
+            "node": "OpenRouter AI - Generate Copy",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter AI - Generate Copy": {
+      "main": [
+        [
+          {
+            "node": "Clean & Parse AI Output",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Clean & Parse AI Output": {
+      "main": [
+        [
+          {
+            "node": "List Screenshots from Disk",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "List Screenshots from Disk": {
+      "main": [
+        [
+          {
+            "node": "Select Random Screenshot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Select Random Screenshot": {
+      "main": [
+        [
+          {
+            "node": "Read Image File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Image File": {
+      "main": [
+        [
+          {
+            "node": "Overlay Heading on Screenshot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read Image File": {
+      "main": [
+        [
+          {
+            "node": "Overlay Heading on Screenshot",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Overlay Heading on Screenshot": {
+      "main": [
+        [
+          {
+            "node": "Write Image to Nginx Folder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Write Image to Nginx Folder": {
+      "main": [
+        [
+          {
+            "node": "Generate Nginx Public URL",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Generate Nginx Public URL": {
+      "main": [
+        [
+          {
+            "node": "Post to Facebook Page",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Instagram - Create Media",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Instagram - Create Media": {
+      "main": [
+        [
+          {
+            "node": "Instagram - Publish Media",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Instagram - Publish Media": {
+      "main": [
+        [
+          {
+            "node": "Outreach - Search GitHub Creatives",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Outreach - Search GitHub Creatives": {
+      "main": [
+        [
+          {
+            "node": "Outreach - Split List of Users",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Outreach - Split List of Users": {
+      "main": [
+        [
+          {
+            "node": "OpenRouter AI - Custom Outreach",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "OpenRouter AI - Custom Outreach": {
+      "main": [
+        [
+          {
+            "node": "Log Outreach to Google Sheets",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {},
+  "staticData": null,
+  "meta": null,
+  "pinData": {}
+}
