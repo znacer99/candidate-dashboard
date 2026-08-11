@@ -6,6 +6,7 @@ import MultiSelectFilter from './MultiSelectFilter'
 import KanbanBoard from './KanbanBoard'
 import CandidateFormModal from './CandidateFormModal'
 import OutreachModal from './OutreachModal'
+import JobOffersManager from './JobOffersManager'
 import { 
   Search, FileSpreadsheet, 
   Sun, Moon, LogOut, CheckSquare, Square, RefreshCw, 
