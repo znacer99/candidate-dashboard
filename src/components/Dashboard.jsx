@@ -10,7 +10,7 @@ import {
   Search, FileSpreadsheet, 
   Sun, Moon, LogOut, CheckSquare, Square, RefreshCw, 
   Users, UserCheck, PhoneCall, AlertTriangle, ChevronLeft, ChevronRight,
-  LayoutGrid, List, UserPlus
+  LayoutGrid, List, UserPlus, Briefcase
 } from 'lucide-react'
 
 // ── Nationality normalization map ──────────────────────────────────────────
