@@ -1,1 +1,3 @@
-export default async function handler(req, res) { return res.status(200).json({ status: 'ok', timestamp: new Date().toISOString() }); }
+export default function handler(req, res) {
+  res.status(200).json({ status: "ok", message: "Candidate sync active", timestamp: new Date().toISOString() });
+}
