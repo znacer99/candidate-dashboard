@@ -54,11 +54,72 @@ async function downloadFile(url, filename) {
     a.click()
     document.body.removeChild(a)
     setTimeout(() => URL.revokeObjectURL(blobUrl), 5000)
-  } catch (err) {
-    console.error('Download failed:', err)
-    // Fallback: open in new tab
     window.open(url, '_blank')
   }
+}
+
+function PdfViewer({ url, label }) {
+  const [blobUrl, setBlobUrl] = useState(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(false)
+
+  useEffect(() => {
+    let active = true
+    setLoading(true)
+    setError(false)
+
+    fetch(url)
+      .then((res) => {
+        if (!res.ok) throw new Error('Fetch failed')
+        return res.arrayBuffer()
+      })
+      .then((buffer) => {
+        if (active) {
+          const blob = new Blob([buffer], { type: 'application/pdf' })
+          const objUrl = URL.createObjectURL(blob)
+          setBlobUrl(objUrl)
+          setLoading(false)
+        }
+      })
+      .catch((err) => {
+        console.error('PDF Blob conversion failed:', err)
+        if (active) {
+          setError(true)
+          setLoading(false)
+        }
+      })
+
+    return () => {
+      active = false
+    }
+  }, [url])
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center h-full min-h-[500px] gap-3 text-zinc-500">
+        <Loader2 className="w-8 h-8 animate-spin text-blue-500" />
+        <p className="text-sm font-medium">Rendering PDF Document...</p>
+      </div>
+    )
+  }
+
+  if (error || !blobUrl) {
+    return (
+      <iframe
+        src={`https://docs.google.com/viewer?url=${encodeURIComponent(url)}&embedded=true`}
+        title={`${label} Viewer`}
+        className="w-full h-full min-h-[520px] border-none"
+      />
+    )
+  }
+
+  return (
+    <iframe
+      src={`${blobUrl}#toolbar=1`}
+      title={`${label} PDF`}
+      className="w-full h-full min-h-[520px] border-none rounded-xl"
+    />
+  )
 }
 
 export default function CandidateDetails({ candidate, onClose, onDeleteSuccess, onEditClick, onOutreachClick }) {
@@ -252,13 +313,9 @@ export default function CandidateDetails({ candidate, onClose, onDeleteSuccess, 
         </div>
 
         {/* Preview Area */}
-        <div className="relative flex-1 min-h-[500px] bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden shadow-inner">
+        <div className="relative flex-1 min-h-[500px] bg-zinc-100 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded-xl overflow-hidden shadow-inner flex flex-col">
           {fileType === 'pdf' ? (
-            <iframe
-              src={`${fileUrl}#toolbar=0`}
-              title={`${fileLabel} PDF`}
-              className="w-full h-full border-none"
-            />
+            <PdfViewer url={fileUrl} label={fileLabel} />
           ) : fileType === 'image' ? (
             <div className="w-full h-full flex items-center justify-center overflow-auto p-4">
               <img
