@@ -35,23 +35,50 @@ self.addEventListener('activate', (event) => {
   self.clients.claim()
 })
 
-// Intercept requests and fetch Stale-While-Revalidate for local assets, Network-Only for Supabase APIs
+// Intercept requests and fetch Stale-While-Revalidate for local assets & Cache-First for Supabase Storage CVs
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url)
 
-  // Skip caching for external Supabase database requests and storage files
-  if (url.origin.includes('supabase.co')) {
-    return // Let the browser fetch from network directly
+  // Cache Supabase Storage CV documents (PDFs, Images, Docs) for offline viewing
+  if (url.origin.includes('supabase.co') && url.pathname.includes('/storage/')) {
+    event.respondWith(
+      caches.match(event.request).then((cachedResponse) => {
+        if (cachedResponse) {
+          return cachedResponse
+        }
+        return fetch(event.request).then((networkResponse) => {
+          if (networkResponse && networkResponse.status === 200) {
+            const responseToCache = networkResponse.clone()
+            caches.open('hr-cv-documents-v1').then((cache) => {
+              cache.put(event.request, responseToCache)
+            })
+          }
+          return networkResponse
+        }).catch(() => {
+          // If network fails and not cached, return offline fallback response
+          return new Response('CV File Offline — Please connect to internet once to download this CV for offline access.', {
+            status: 503,
+            headers: { 'Content-Type': 'text/plain' }
+          })
+        })
+      })
+    )
+    return
   }
 
-  // Handle local assets: Stale-While-Revalidate strategy
+  // Skip caching for direct Supabase database REST API requests
+  if (url.origin.includes('supabase.co')) {
+    return
+  }
+
+  // Handle local app shell & assets: Stale-While-Revalidate strategy
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
       if (cachedResponse) {
         // Fetch updated version in background to update cache
         fetch(event.request)
           .then((networkResponse) => {
-            if (networkResponse.status === 200) {
+            if (networkResponse && networkResponse.status === 200) {
               caches.open(CACHE_NAME).then((cache) => cache.put(event.request, networkResponse))
             }
           })
