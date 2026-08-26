@@ -81,6 +81,19 @@ export default function JobOffersManager({ onClose }) {
   const fetchJobs = async () => {
     setLoading(true)
     setError(null)
+    
+    // Instant local cache hydration
+    const cachedJobs = getLocalJobs()
+    if (cachedJobs && cachedJobs.length > 0) {
+      setJobs(cachedJobs)
+      setLoading(false)
+    }
+
+    if (!navigator.onLine) {
+      setLoading(false)
+      return
+    }
+
     try {
       const { data, error: err } = await supabase
         .from('job_offers')
@@ -97,6 +110,7 @@ export default function JobOffersManager({ onClose }) {
       } else {
         setNeedsSqlSetup(false)
         setJobs(data || [])
+        saveLocalJobs(data || [])
       }
     } catch (err) {
       console.error('Error fetching job offers:', err)

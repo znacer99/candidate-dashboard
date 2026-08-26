@@ -1,6 +1,13 @@
-import { useState, useEffect, useMemo } from 'react'
+import { useState, useEffect, useMemo, useCallback } from 'react'
 import { supabase } from '../supabaseClient'
 import { exportToExcel } from '../utils/ExportUtils'
+import { 
+  saveCachedCandidates, 
+  getCachedCandidates, 
+  queueOfflineAction, 
+  syncPendingActions, 
+  getPendingOfflineActions 
+} from '../utils/offlineStorage'
 import CandidateDetails from './CandidateDetails'
 import MultiSelectFilter from './MultiSelectFilter'
 import KanbanBoard from './KanbanBoard'
@@ -11,7 +18,7 @@ import {
   Search, FileSpreadsheet, 
   Sun, Moon, LogOut, CheckSquare, Square, RefreshCw, 
   Users, UserCheck, PhoneCall, AlertTriangle, ChevronLeft, ChevronRight,
-  LayoutGrid, List, UserPlus, Briefcase
+  LayoutGrid, List, UserPlus, Briefcase, Wifi, WifiOff
 } from 'lucide-react'
 
 // ── Nationality normalization map ──────────────────────────────────────────
@@ -120,6 +127,9 @@ export default function Dashboard({ onLogout }) {
   const [candidates, setCandidates] = useState([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState(null)
+  const [isOffline, setIsOffline] = useState(() => !navigator.onLine)
+  const [isSyncing, setIsSyncing] = useState(false)
+  const [pendingQueueCount, setPendingQueueCount] = useState(() => getPendingOfflineActions().length)
 
   // View mode: 'table' vs 'kanban'
   const [viewMode, setViewMode] = useState('table')
@@ -148,12 +158,20 @@ export default function Dashboard({ onLogout }) {
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(25)
 
-  // Status Change Handler for Kanban / Quick updates
+  // Status Change Handler for Kanban / Quick updates with Offline queue support
   const handleStatusChange = async (candidateId, newStatus) => {
-    // Optimistic UI update
-    setCandidates((prev) =>
-      prev.map((c) => (c.id === candidateId ? { ...c, status: newStatus } : c))
-    )
+    // Optimistic UI update & local cache update
+    setCandidates((prev) => {
+      const updated = prev.map((c) => (c.id === candidateId ? { ...c, status: newStatus } : c))
+      saveCachedCandidates(updated)
+      return updated
+    })
+
+    if (!navigator.onLine) {
+      queueOfflineAction({ type: 'UPDATE_STATUS', candidateId, newStatus })
+      setPendingQueueCount(getPendingOfflineActions().length)
+      return
+    }
 
     try {
       const { error: updateErr } = await supabase
@@ -163,9 +181,9 @@ export default function Dashboard({ onLogout }) {
 
       if (updateErr) throw updateErr
     } catch (err) {
-      console.error('Failed to update candidate status:', err)
-      // Revert if error
-      fetchCandidates()
+      console.error('Failed to update candidate status online, queueing offline action:', err)
+      queueOfflineAction({ type: 'UPDATE_STATUS', candidateId, newStatus })
+      setPendingQueueCount(getPendingOfflineActions().length)
     }
   }
 
@@ -174,17 +192,16 @@ export default function Dashboard({ onLogout }) {
     if (!savedCandidate) return
     setCandidates((prev) => {
       const exists = prev.some((c) => c.id === savedCandidate.id)
-      if (exists) {
-        return prev.map((c) => (c.id === savedCandidate.id ? savedCandidate : c))
-      }
-      return [savedCandidate, ...prev]
+      const nextList = exists
+        ? prev.map((c) => (c.id === savedCandidate.id ? savedCandidate : c))
+        : [savedCandidate, ...prev]
+      saveCachedCandidates(nextList)
+      return nextList
     })
     if (activeCandidate && activeCandidate.id === savedCandidate.id) {
       setActiveCandidate(savedCandidate)
     }
   }
-
-
 
   // Dark/Light Mode state
   const [isDarkMode, setIsDarkMode] = useState(() => {
@@ -204,50 +221,85 @@ export default function Dashboard({ onLogout }) {
     }
   }, [isDarkMode])
 
-  // Fetch candidates from Supabase
-  const fetchCandidates = async () => {
+  // Fetch candidates from Supabase with graceful offline fallback
+  const fetchCandidates = useCallback(async () => {
     setLoading(true)
     setError(null)
+
+    // Hydrate immediately from cache first for instant display
+    const cachedData = getCachedCandidates()
+    if (cachedData && cachedData.length > 0) {
+      setCandidates(cachedData)
+      setLoading(false)
+    }
+
+    if (!navigator.onLine) {
+      setIsOffline(true)
+      setLoading(false)
+      return
+    }
+
     try {
-      const { data, error } = await supabase
+      const { data, error: dbErr } = await supabase
         .from('candidates')
         .select('*')
         .order('created_at', { ascending: false })
 
-      if (error) throw error
-      setCandidates(data || [])
+      if (dbErr) throw dbErr
+      if (data) {
+        setCandidates(data)
+        saveCachedCandidates(data)
+        setIsOffline(false)
+      }
     } catch (err) {
-      console.error('Error fetching candidates:', err)
-      setError('Failed to retrieve candidates from database. Please reload.')
+      console.error('Error fetching candidates from Supabase:', err)
+      if (!cachedData || cachedData.length === 0) {
+        setError('Failed to retrieve candidates from database. Viewing offline cache.')
+      }
+      setIsOffline(true)
     } finally {
       setLoading(false)
     }
-  }
-
-  useEffect(() => {
-    let active = true
-    async function initLoad() {
-      try {
-        const { data, error } = await supabase
-          .from('candidates')
-          .select('*')
-          .order('created_at', { ascending: false })
-        if (active) {
-          if (error) throw error
-          setCandidates(data || [])
-          setLoading(false)
-        }
-      } catch (err) {
-        if (active) {
-          console.error('Error fetching candidates:', err)
-          setError('Failed to retrieve candidates from database. Please reload.')
-          setLoading(false)
-        }
-      }
-    }
-    initLoad()
-    return () => { active = false }
   }, [])
+
+  // Auto-sync function when internet returns
+  const handleAutoSync = useCallback(async () => {
+    if (!navigator.onLine) return
+    setIsSyncing(true)
+    try {
+      const count = await syncPendingActions(supabase)
+      setPendingQueueCount(getPendingOfflineActions().length)
+      await fetchCandidates()
+      if (count > 0) {
+        console.log(`Synced ${count} offline updates successfully!`)
+      }
+    } catch (err) {
+      console.error('Sync failed:', err)
+    } finally {
+      setIsSyncing(false)
+    }
+  }, [fetchCandidates])
+
+  // Network Status listeners (Online / Offline)
+  useEffect(() => {
+    fetchCandidates()
+
+    const onOnline = () => {
+      setIsOffline(false)
+      handleAutoSync()
+    }
+    const onOffline = () => {
+      setIsOffline(true)
+    }
+
+    window.addEventListener('online', onOnline)
+    window.addEventListener('offline', onOffline)
+
+    return () => {
+      window.removeEventListener('online', onOnline)
+      window.removeEventListener('offline', onOffline)
+    }
+  }, [fetchCandidates, handleAutoSync])
 
   // Filter & search match helpers
   const getMatchesSearch = (c, term) => {
@@ -498,13 +550,46 @@ export default function Dashboard({ onLogout }) {
       
       {/* Top Banner Navigation */}
       <header className="sticky top-0 z-30 border-b border-zinc-200 dark:border-zinc-800 bg-white/80 dark:bg-[#09090b]/80 backdrop-blur-md">
+        {/* Offline Alert Banner */}
+        {isOffline && (
+          <div className="bg-amber-500/15 border-b border-amber-500/30 text-amber-800 dark:text-amber-300 px-4 py-2 text-xs font-semibold flex items-center justify-between animate-in fade-in">
+            <div className="flex items-center gap-2 max-w-7xl mx-auto w-full">
+              <WifiOff className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+              <span>
+                <strong>Offline Mode:</strong> Viewing cached candidates. Changes will automatically sync when connection is restored.
+              </span>
+              {pendingQueueCount > 0 && (
+                <span className="ml-auto bg-amber-500/20 text-amber-900 dark:text-amber-200 px-2 py-0.5 rounded-md text-[11px] font-bold">
+                  {pendingQueueCount} Pending Sync{pendingQueueCount > 1 ? 's' : ''}
+                </span>
+              )}
+            </div>
+          </div>
+        )}
+
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 h-16 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="p-2 bg-blue-600 text-white rounded-xl shadow-md">
               <Users className="w-5 h-5" />
             </div>
             <div>
-              <h1 className="font-extrabold text-lg tracking-tight">HR Candidate Portal</h1>
+              <div className="flex items-center gap-2">
+                <h1 className="font-extrabold text-lg tracking-tight">HR Candidate Portal</h1>
+                {/* Network Status Badge */}
+                {isOffline ? (
+                  <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/10 text-amber-600 dark:text-amber-400 border border-amber-500/20">
+                    <WifiOff className="w-3 h-3" /> Offline
+                  </span>
+                ) : isSyncing ? (
+                  <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/10 text-blue-600 dark:text-blue-400 border border-blue-500/20 animate-pulse">
+                    <RefreshCw className="w-3 h-3 animate-spin" /> Syncing...
+                  </span>
+                ) : (
+                  <span className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 border border-emerald-500/20">
+                    <Wifi className="w-3 h-3" /> Online
+                  </span>
+                )}
+              </div>
               <p className="text-[10px] text-zinc-500 font-semibold tracking-wider uppercase dark:text-zinc-400">Management Dashboard</p>
             </div>
           </div>

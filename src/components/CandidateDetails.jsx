@@ -54,6 +54,7 @@ async function downloadFile(url, filename) {
     a.click()
     document.body.removeChild(a)
     setTimeout(() => URL.revokeObjectURL(blobUrl), 5000)
+  } catch (err) {
     window.open(url, '_blank')
   }
 }
