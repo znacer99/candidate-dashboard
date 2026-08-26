@@ -1,31 +1,18 @@
-const CACHE_NAME = 'hr-candidate-portal-v2'
-const ASSETS_TO_CACHE = [
-  '/',
-  '/index.html',
-  '/favicon.svg',
-  '/icons.svg',
-  '/manifest.json'
-]
+const CACHE_NAME = 'hr-candidate-portal-v3'
 
-// Install Service Worker and pre-cache app shell
+// Install Service Worker immediately
 self.addEventListener('install', (event) => {
-  event.waitUntil(
-    caches.open(CACHE_NAME).then((cache) => {
-      console.log('[Service Worker] Caching app shell')
-      return cache.addAll(ASSETS_TO_CACHE)
-    })
-  )
   self.skipWaiting()
 })
 
-// Activate Service Worker and claim clients
+// Activate Service Worker and take control of all open pages immediately
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((cacheNames) => {
       return Promise.all(
         cacheNames.map((cache) => {
           if (cache !== CACHE_NAME && cache !== 'hr-cv-documents-v1') {
-            console.log('[Service Worker] Clearing old cache:', cache)
+            console.log('[Service Worker] Deleting outdated cache:', cache)
             return caches.delete(cache)
           }
         })
@@ -35,11 +22,11 @@ self.addEventListener('activate', (event) => {
   self.clients.claim()
 })
 
-// Intercept fetch requests
+// Intercept requests
 self.addEventListener('fetch', (event) => {
   const url = new URL(event.request.url)
 
-  // 1. Supabase Storage CV files (PDFs / Images) - Cache First with Network Fallback
+  // 1. Supabase Storage CV files (PDFs, images) - Cache First
   if (url.origin.includes('supabase.co') && url.pathname.includes('/storage/')) {
     event.respondWith(
       caches.match(event.request).then((cachedResponse) => {
@@ -54,7 +41,7 @@ self.addEventListener('fetch', (event) => {
             return networkResponse
           })
           .catch(() => {
-            return new Response('CV Document Offline — Connect to internet to load new files.', {
+            return new Response('CV Document Offline — Connect to internet once to download this CV.', {
               status: 503,
               headers: { 'Content-Type': 'text/plain' }
             })
@@ -64,47 +51,52 @@ self.addEventListener('fetch', (event) => {
     return
   }
 
-  // 2. Supabase API Requests - Network Only (handled by Dashboard localStorage fallback)
+  // 2. Direct Supabase API database queries - Network Only (handled by Dashboard localStorage)
   if (url.origin.includes('supabase.co')) {
     return
   }
 
-  // 3. Navigation / HTML Page Requests - Network First, fallback to cached /index.html
+  // 3. Navigation / HTML Document requests - Network First, fallback to cached index.html
   if (event.request.mode === 'navigate' || event.request.headers.get('accept')?.includes('text/html')) {
     event.respondWith(
       fetch(event.request)
         .then((networkResponse) => {
           if (networkResponse && networkResponse.status === 200) {
             const responseToCache = networkResponse.clone()
-            caches.open(CACHE_NAME).then((cache) => cache.put('/index.html', responseToCache))
+            caches.open(CACHE_NAME).then((cache) => {
+              cache.put('/index.html', responseToCache.clone())
+              cache.put('/', responseToCache)
+            })
           }
           return networkResponse
         })
         .catch(() => {
-          // OFFLINE FALLBACK: Serve index.html from cache
           return caches.match('/index.html').then((cachedIndex) => {
-            if (cachedIndex) return cachedIndex
-            return caches.match('/')
+            return cachedIndex || caches.match('/')
           })
         })
     )
     return
   }
 
-  // 4. JS, CSS, Fonts, Images - Stale-While-Revalidate with Cache Fallback
+  // 4. JS, CSS, Fonts, Images - Cache First, Network Fallback
   event.respondWith(
     caches.match(event.request).then((cachedResponse) => {
-      const fetchPromise = fetch(event.request)
-        .then((networkResponse) => {
-          if (networkResponse && networkResponse.status === 200 && networkResponse.type === 'basic') {
-            const responseToCache = networkResponse.clone()
-            caches.open(CACHE_NAME).then((cache) => cache.put(event.request, responseToCache))
-          }
-          return networkResponse
-        })
-        .catch(() => cachedResponse)
+      if (cachedResponse) {
+        return cachedResponse
+      }
 
-      return cachedResponse || fetchPromise
+      return fetch(event.request).then((networkResponse) => {
+        if (networkResponse && networkResponse.status === 200) {
+          const responseToCache = networkResponse.clone()
+          caches.open(CACHE_NAME).then((cache) => {
+            cache.put(event.request, responseToCache)
+          })
+        }
+        return networkResponse
+      }).catch(() => {
+        return new Response('', { status: 404, statusText: 'Offline Asset Not Found' })
+      })
     })
   )
 })
