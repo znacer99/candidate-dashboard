@@ -1,4 +1,4 @@
-const CACHE_NAME = 'hr-candidate-portal-v3'
+const CACHE_NAME = 'hr-candidate-portal-v4'
 
 // Install Service Worker immediately
 self.addEventListener('install', (event) => {

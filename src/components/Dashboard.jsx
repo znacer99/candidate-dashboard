@@ -14,12 +14,14 @@ import KanbanBoard from './KanbanBoard'
 import CandidateFormModal from './CandidateFormModal'
 import OutreachModal from './OutreachModal'
 import JobOffersManager from './JobOffersManager'
+import AbroadTalentHub from './AbroadTalentHub'
 import { 
   Search, FileSpreadsheet, 
   Sun, Moon, LogOut, CheckSquare, Square, RefreshCw, 
   Users, UserCheck, PhoneCall, AlertTriangle, ChevronLeft, ChevronRight,
-  LayoutGrid, List, UserPlus, Briefcase, Wifi, WifiOff
+  LayoutGrid, List, UserPlus, Briefcase, Wifi, WifiOff, Globe2, ExternalLink
 } from 'lucide-react'
+
 
 // ── Nationality normalization map ──────────────────────────────────────────
 // Maps known dirty / variant spellings → canonical English name
@@ -158,6 +160,18 @@ export default function Dashboard({ onLogout }) {
   const [currentPage, setCurrentPage] = useState(1)
   const [pageSize, setPageSize] = useState(25)
 
+  // Main Section Tab: 'all' (General Candidates) vs 'abroad' (International Talent Pool)
+  const [activeSection, setActiveSection] = useState('all')
+
+  const abroadCount = useMemo(() => {
+    return candidates.filter((c) => {
+      const skills = (c.skills || '').toLowerCase()
+      const status = (c.status || '').toLowerCase()
+      const applied = (c.applied_position || '').toLowerCase()
+      return skills.includes('abroad') || status.includes('abroad') || applied.includes('[abroad]')
+    }).length
+  }, [candidates])
+
   // Status Change Handler for Kanban / Quick updates with Offline queue support
   const handleStatusChange = async (candidateId, newStatus) => {
     // Optimistic UI update & local cache update
@@ -203,12 +217,11 @@ export default function Dashboard({ onLogout }) {
     }
   }
 
-  // Dark/Light Mode state
+  // Clean Light Mode state (Default to white/light)
   const [isDarkMode, setIsDarkMode] = useState(() => {
-    const saved = localStorage.getItem('candidate_theme')
-    if (saved) return saved === 'dark'
-    return window.matchMedia('(prefers-color-scheme: dark)').matches
+    return localStorage.getItem('candidate_theme') === 'dark'
   })
+
 
   // Theme application
   useEffect(() => {
@@ -677,8 +690,60 @@ export default function Dashboard({ onLogout }) {
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 space-y-8">
         
-        {/* KPI Stats Widgets */}
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+        {/* Top Master Switcher: General Candidates vs International Talent Pool */}
+        <div className="flex flex-col sm:flex-row items-center justify-between gap-4 p-2 bg-white dark:bg-[#0c0c0e] border border-zinc-200 dark:border-zinc-800 rounded-2xl shadow-sm">
+          <div className="flex items-center gap-1.5 w-full sm:w-auto">
+            <button
+              onClick={() => setActiveSection('all')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                activeSection === 'all'
+                  ? 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 shadow-sm'
+                  : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
+              }`}
+            >
+              <Users className="w-4 h-4" />
+              <span>General Candidates ({candidates.length})</span>
+            </button>
+
+            <button
+              onClick={() => setActiveSection('abroad')}
+              className={`flex items-center gap-2 px-4 py-2 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
+                activeSection === 'abroad'
+                  ? 'bg-zinc-900 dark:bg-zinc-100 text-white dark:text-zinc-900 shadow-sm'
+                  : 'text-zinc-600 dark:text-zinc-400 hover:text-zinc-900 dark:hover:text-white'
+              }`}
+            >
+              <Globe2 className="w-4 h-4" />
+              <span>International Talent Pool</span>
+              <span className="text-[10px] bg-zinc-200 dark:bg-zinc-800 text-zinc-800 dark:text-zinc-200 px-1.5 py-0.5 rounded font-mono font-medium">
+                {abroadCount}
+              </span>
+            </button>
+
+          </div>
+
+          <div className="flex items-center gap-2 pr-1 w-full sm:w-auto justify-end">
+            <button
+              onClick={() => window.open(`${window.location.origin}${window.location.pathname}?page=apply-abroad`, '_blank')}
+              className="px-3 py-1.5 bg-blue-50 dark:bg-blue-950/40 text-blue-600 dark:text-blue-400 border border-blue-200 dark:border-blue-800/60 rounded-xl text-xs font-bold flex items-center gap-1.5 hover:bg-blue-100 dark:hover:bg-blue-900/40 transition-colors cursor-pointer"
+            >
+              <span>Public Registration Form</span>
+              <ExternalLink className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        </div>
+
+        {activeSection === 'abroad' ? (
+          <AbroadTalentHub
+            candidates={candidates}
+            onSelectCandidate={setActiveCandidate}
+            onOpenForm={() => window.open(`${window.location.origin}${window.location.pathname}?page=apply-abroad`, '_blank')}
+          />
+        ) : (
+          <>
+            {/* KPI Stats Widgets */}
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+
           <div className="bg-white dark:bg-zinc-950 p-5 rounded-2xl border border-zinc-200 dark:border-zinc-900 shadow-sm flex items-center gap-4 hover:scale-[1.01] transition-all">
             <div className="p-3 bg-zinc-100 dark:bg-zinc-900 text-zinc-500 rounded-xl border border-zinc-200/50 dark:border-zinc-800">
               <Users className="w-6 h-6" />
@@ -1051,7 +1116,10 @@ export default function Dashboard({ onLogout }) {
             )}
           </div>
         )}
+        </>
+      )}
       </main>
+
 
       {/* Candidate Details Side Drawer */}
       <CandidateDetails
