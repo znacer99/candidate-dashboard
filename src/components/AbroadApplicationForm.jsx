@@ -1,5 +1,5 @@
 import { useState } from 'react'
-import { Check, Upload, Plus, Trash2, ArrowLeft, Loader2, AlertCircle } from 'lucide-react'
+import { Check, Upload, Plus, Trash2, Loader2, AlertCircle } from 'lucide-react'
 import { supabase } from '../supabaseClient'
 
 // Comprehensive International Dial Codes
@@ -339,15 +339,6 @@ export default function AbroadApplicationForm({ onBackToLogin }) {
             >
               {isAr ? 'تسجيل ملف جديد' : 'Submit Another Profile'}
             </button>
-
-            {onBackToLogin && (
-              <button
-                onClick={onBackToLogin}
-                className="w-full py-2 text-xs text-neutral-500 hover:text-neutral-900 transition-colors cursor-pointer"
-              >
-                {isAr ? 'العودة لبوابة الإدارة' : 'Return to Portal'}
-              </button>
-            )}
           </div>
         </div>
       </div>
@@ -391,16 +382,6 @@ export default function AbroadApplicationForm({ onBackToLogin }) {
                 English
               </button>
             </div>
-
-            {onBackToLogin && (
-              <button
-                onClick={onBackToLogin}
-                className="text-xs font-medium text-neutral-600 hover:text-neutral-900 flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-neutral-200 hover:bg-neutral-50 transition-colors cursor-pointer"
-              >
-                {isAr ? <ArrowLeft className="w-3.5 h-3.5 rotate-180" /> : <ArrowLeft className="w-3.5 h-3.5" />}
-                {isAr ? 'دخول الإدارة' : 'Portal Access'}
-              </button>
-            )}
           </div>
         </div>
       </header>
