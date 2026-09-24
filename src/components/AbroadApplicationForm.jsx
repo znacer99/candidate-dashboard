@@ -260,10 +260,12 @@ export default function AbroadApplicationForm({ onBackToLogin }) {
       const structuredSkills = [
         `[ABROAD TALENT POOL]`,
         `Field: ${activeIndustry}`,
+        formData.currentCountry ? `Location: ${formData.currentCountry}` : null,
         certsText ? `Certifications: ${certsText}` : null,
         langsText ? `Languages: ${langsText}` : null,
         `Passport: ${formData.passportStatus}`,
-        formData.skillsKeywords ? `Skills: ${formData.skillsKeywords}` : null
+        formData.skillsKeywords ? `Skills: ${formData.skillsKeywords}` : null,
+        formData.shortBio ? `Summary: ${formData.shortBio}` : null
       ].filter(Boolean).join(' • ')
 
       const candidateRecord = {
@@ -277,8 +279,7 @@ export default function AbroadApplicationForm({ onBackToLogin }) {
         education: formData.educationLevel,
         skills: structuredSkills,
         cv_filepath: uploadedCvUrl || null,
-        status: 'Abroad Applicant',
-        notes: `Global Candidate Registration. Open Destination. Location: ${formData.currentCountry || 'Not specified'}.`
+        status: 'Abroad Applicant'
       }
 
       const { data, error: insertErr } = await supabase
