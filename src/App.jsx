@@ -9,17 +9,27 @@ function App() {
   })
 
   // Detect if user navigated directly to the public abroad application form
-  const [showAbroadForm, setShowAbroadForm] = useState(() => {
-    const search = window.location.search
-    const hash = window.location.hash
-    return search.includes('page=apply-abroad') || search.includes('apply=abroad') || hash === '#apply'
-  })
+  const isAbroadRoute = () => {
+    const search = window.location.search.toLowerCase()
+    const hash = window.location.hash.toLowerCase()
+    const pathname = window.location.pathname.toLowerCase()
+    const hostname = window.location.hostname.toLowerCase()
+    return (
+      search.includes('page=apply-abroad') ||
+      search.includes('apply=abroad') ||
+      hash === '#apply' ||
+      pathname.startsWith('/abroad') ||
+      pathname.startsWith('/apply') ||
+      hostname.startsWith('abroad.') ||
+      hostname.startsWith('global.')
+    )
+  }
+
+  const [showAbroadForm, setShowAbroadForm] = useState(isAbroadRoute)
 
   useEffect(() => {
     const handlePopState = () => {
-      const search = window.location.search
-      const hash = window.location.hash
-      setShowAbroadForm(search.includes('page=apply-abroad') || search.includes('apply=abroad') || hash === '#apply')
+      setShowAbroadForm(isAbroadRoute())
     }
     window.addEventListener('popstate', handlePopState)
     return () => window.removeEventListener('popstate', handlePopState)
