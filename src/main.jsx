@@ -46,14 +46,21 @@ createRoot(document.getElementById('root')).render(
   </StrictMode>,
 )
 
-// Register PWA service worker for offline app capability
+// Unregister any legacy service workers & clear old caches to prevent stale bundles
 if ('serviceWorker' in navigator) {
-  navigator.serviceWorker.register('/sw.js')
-    .then((registration) => {
-      console.log('PWA ServiceWorker registered successfully with scope:', registration.scope)
-      registration.update()
+  navigator.serviceWorker.getRegistrations().then((registrations) => {
+    for (const registration of registrations) {
+      registration.unregister().then(() => {
+        console.log('Unregistered legacy ServiceWorker:', registration.scope)
+      })
+    }
+  })
+  if ('caches' in window) {
+    caches.keys().then((keys) => {
+      for (const key of keys) {
+        caches.delete(key)
+      }
     })
-    .catch((error) => {
-      console.error('PWA ServiceWorker registration failed:', error)
-    })
+  }
 }
+
