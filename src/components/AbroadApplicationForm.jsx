@@ -268,7 +268,17 @@ export default function AbroadApplicationForm({ onBackToLogin }) {
         formData.shortBio ? `Summary: ${formData.shortBio}` : null
       ].filter(Boolean).join(' • ')
 
+      // Fetch max candidate integer ID to satisfy not-null constraint
+      const { data: maxRow } = await supabase
+        .from('candidates')
+        .select('id')
+        .order('id', { ascending: false })
+        .limit(1)
+
+      const nextId = (maxRow && maxRow[0] && typeof maxRow[0].id === 'number' ? maxRow[0].id : 1000) + 1
+
       const candidateRecord = {
+        id: nextId,
         full_name: formData.fullName.trim(),
         email: formData.email.trim() || `applicant_${Date.now()}@abroad-pool.intl`,
         phone: fullFormattedPhone,
