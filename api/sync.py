@@ -16,8 +16,7 @@ SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJ
 IMAP_SERVER = "mail.alghaithcompanies.group"
 
 KNOWN_ACCOUNTS = {
-    "hr@alghaithcompanies.group": "alghaithHR@211260",
-    "alighaith@alghaithcompanies.group": "ALGHAITH@211260"
+    "hr@alghaithcompanies.group": "alghaithHR@211260"
 }
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -107,12 +106,26 @@ def run_fast_sync():
                     real_name, real_email, clean_pos = extract_real_candidate(body, subj, attachments)
                     
                     em_match = re.search(r'[\w\.-]+@[\w\.-]+', sender)
-                    raw_email = em_match.group(0).lower() if em_match else f"app_{e_id.decode()}@alghaithcompanies.group"
-                    cand_email = real_email or (f"fwd_{e_id.decode()}@alghaithholding.com" if "alghaith" in sender.lower() or "naceur" in sender.lower() else raw_email)
+                    raw_email = em_match.group(0).lower() if em_match else ""
                     
-                    if cand_email in existing_emails: continue
+                    # Ignore internal staff or executive emails
+                    if any(w in sender.lower() for w in ['alghaith', 'ali ghaith', 'naceur']):
+                        if not real_email:
+                            continue  # Skip internal emails that don't contain a real forwarded candidate
+                        cand_email = real_email
+                    else:
+                        cand_email = real_email or raw_email
+
+                    if not cand_email or cand_email in existing_emails or "alghaith" in cand_email:
+                        continue
                     
+                    # Must have an attachment (CV) to be a candidate
+                    if not cv_url:
+                        continue
+
                     cand_name = real_name or (sender.split("<")[0].replace('"', '').strip() or cand_email.split("@")[0].title())
+                    if any(w in cand_name.lower() for w in ['ali ghaith', 'alghaith', 'naceur']):
+                        continue
 
                     record = {
                         "id": next_id,

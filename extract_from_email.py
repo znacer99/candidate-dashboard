@@ -167,9 +167,7 @@ def decode_mime_text(raw_text):
         return str(raw_text).strip()
 
 KNOWN_ACCOUNTS = {
-    "hr@alghaithcompanies.group": "alghaithHR@211260",
-    "info@alghaithcompanies.group": "alghaithINFO@211260",
-    "alighaith@alghaithcompanies.group": "ALGHAITH@211260"
+    "hr@alghaithcompanies.group": "alghaithHR@211260"
 }
 
 def get_imap_connection(email_user, email_pass):
@@ -417,10 +415,16 @@ def process_inbox(email_user="hr@alghaithcompanies.group", email_pass="alghaithH
                 if is_forwarded and fwd_email:
                     candidate_email = fwd_email
                 elif is_forwarded and not fwd_email:
-                    # Generate a unique applicant email so the boss's email isn't deduplicated/skipped!
-                    candidate_email = f"fwd_applicant_{e_id.decode()}@alghaithholding.com"
+                    # Skip forwarded emails that don't have a clear candidate email
+                    skipped_junk_count += 1
+                    continue
                 else:
                     candidate_email = raw_sender_email
+
+                # Strictly block any internal or executive emails
+                if any(w in candidate_email.lower() for w in ['alghaith', 'ali ghaith', 'naceur']) or candidate_email.startswith('fwd_'):
+                    skipped_junk_count += 1
+                    continue
 
                 # Deduplication Check
                 if candidate_email in existing_emails:
@@ -431,11 +435,15 @@ def process_inbox(email_user="hr@alghaithcompanies.group", email_pass="alghaithH
                     candidate_name = fwd_name
                 else:
                     candidate_name = sender_raw.split("<")[0].replace('"', '').replace("'", '').strip()
-                    if not candidate_name or "@" in candidate_name or "=?" in candidate_name or 'ali ghaith' in candidate_name.lower():
+                    if not candidate_name or "@" in candidate_name or "=?" in candidate_name or any(w in candidate_name.lower() for w in ['ali ghaith', 'alghaith', 'naceur']):
                         if attachment_filenames:
                             candidate_name = os.path.splitext(attachment_filenames[0])[0].replace('_', ' ').title()
                         else:
                             candidate_name = candidate_email.split("@")[0].replace(".", " ").title()
+
+                if any(w in candidate_name.lower() for w in ['ali ghaith', 'alghaith', 'naceur']):
+                    skipped_junk_count += 1
+                    continue
 
                 # 4. Upload attachments to Supabase Storage
                 for clean_fn, storage_path, file_data in attachments_found:
