@@ -3,7 +3,7 @@ import { X, Mail, Phone, Globe, Briefcase, Award, GraduationCap, FileText, UserC
 import { supabase } from '../supabaseClient'
 
 const SUPABASE_URL = import.meta.env.VITE_SUPABASE_URL
-const SUPABASE_STORAGE_BASE = `${SUPABASE_URL}/storage/v1/object/public/candidates/candidates`
+const R2_PUBLIC_BASE = 'https://pub-edbf7553b0c545368d14b9bbca9afaf4.r2.dev/candidates'
 
 // Nationality normalization (same map as Dashboard)
 const NATIONALITY_MAP = {
@@ -25,17 +25,17 @@ function normalizeNationality(raw) {
 
 /**
  * Converts any stored file path/name/URL to a usable public URL.
- * Handles: full URLs, Supabase paths, local /app/uploads paths, bare filenames.
+ * Handles: full URLs, Cloudflare R2 URLs, local /app/uploads paths, bare filenames.
  */
 function buildFileUrl(rawPath) {
   if (!rawPath) return null
   const s = String(rawPath).trim()
   // Already a full public URL
   if (s.startsWith('http://') || s.startsWith('https://')) return s
-  // Extract just the filename from any path and build Supabase URL
+  // Extract just the filename from any path and build Cloudflare R2 URL
   const filename = s.split('/').pop()
   if (!filename) return null
-  return `${SUPABASE_STORAGE_BASE}/${encodeURIComponent(filename)}`
+  return `${R2_PUBLIC_BASE}/${encodeURIComponent(filename)}`
 }
 
 /**

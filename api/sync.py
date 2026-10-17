@@ -11,8 +11,8 @@ from supabase import create_client
 
 socket.setdefaulttimeout(5)
 
-SUPABASE_URL = "https://bliazzxcvzypcqgdxmwj.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImJsaWF6enhjdnp5cGNxZ2R4bXdqIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc4MDk4OTE5OCwiZXhwIjoyMDk2NTY1MTk4fQ.k717-XUxvwoCqPJwGliPIeaOWHhiGZEa9SSJnC2N15I"
+SUPABASE_URL = "https://gscehkviisvzwnxfiidu.supabase.co"
+SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdzY2Voa3ZpaXN2endueGZpaWR1Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc5MjE4NzEzNSwiZXhwIjoyMTA3NzYzMTM1fQ.elwCkRf0zDKVjZgF9vXhwFZNCjjUoNT9uDBBIw6yC3Q"
 IMAP_SERVER = "mail.alghaithcompanies.group"
 
 KNOWN_ACCOUNTS = {
