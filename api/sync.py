@@ -9,15 +9,60 @@ import time
 import socket
 from supabase import create_client
 
-socket.setdefaulttimeout(5)
+# Fast socket timeout so the serverless function executes quickly
+socket.setdefaulttimeout(10)
 
-SUPABASE_URL = "https://gscehkviisvzwnxfiidu.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdzY2Voa3ZpaXN2endueGZpaWR1Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc5MjE4NzEzNSwiZXhwIjoyMTA3NzYzMTM1fQ.elwCkRf0zDKVjZgF9vXhwFZNCjjUoNT9uDBBIw6yC3Q"
+SUPABASE_URL = os.getenv("SUPABASE_URL", "https://gscehkviisvzwnxfiidu.supabase.co")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdzY2Voa3ZpaXN2endueGZpaWR1Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc5MjE4NzEzNSwiZXhwIjoyMTA3NzYzMTM1fQ.elwCkRf0zDKVjZgF9vXhwFZNCjjUoNT9uDBBIw6yC3Q")
 IMAP_SERVER = "mail.alghaithcompanies.group"
 
 KNOWN_ACCOUNTS = {
-    "hr@alghaithcompanies.group": "alghaithHR@211260"
+    "hr@alghaithcompanies.group": os.getenv("HR_EMAIL_PASSWORD", "alghaithHR@211260")
 }
+
+# Comprehensive junk/ignore list: bounces, invoices, spam, invitations, security alerts
+IGNORE_KEYWORDS = [
+    # System & Delivery
+    "delivery status", "undelivered", "out of office", "autoresponder", 
+    "failure notice", "re: [notice]", "mailer-daemon", "spam", "mail delivery",
+    "postmaster", "bounce", "mail delivery subsystem", "daemon",
+    # Verification & Security
+    "verification code", "verify your email", "security alert", "password reset", 
+    "reset your password", "code de vérification", "رمز التحقق", "two-factor", "2fa",
+    "login alert", "new sign-in", "cpanel", "webmail notification", "cron <",
+    # Invoices & Commercial
+    "invoice", "facture", "فاتورة", "receipt", "reçu", "quittance",
+    "payment", "paiement", "سداد", "دفعة", "bill", "billing", 
+    "statement of account", "relevé de compte", "كشف حساب",
+    "purchase order", "bon de commande", "order confirmation", "confirmation de commande",
+    "quotation", "devis", "عرض أسعار", "quote #", "estimate",
+    # Events & Marketing
+    "invitation", "دعوة", "conference", "ملتقى", "webinar", "workshop", "seminar",
+    "newsletter", "unsubscribe", "se désabonner", "opt-out", "promotions", 
+    "weekly digest", "daily digest", "marketing"
+]
+
+IGNORED_SENDERS = [
+    "mailer-daemon", "postmaster", "noreply", "no-reply", "notifications@",
+    "billing@", "support@", "newsletter@", "security@", "alert@",
+    "google.com", "microsoft.com", "apple.com", "facebook.com", "linkedin.com",
+    "cpanel.net", "hostinger.com", "godaddy.com"
+]
+
+JUNK_ATTACHMENT_KEYWORDS = [
+    "invoice", "facture", "receipt", "bill", "devis", "quote", "quotation",
+    "ticket", "reservation", "poster", "invitation", "banner", "logo", "flyer",
+    "statement", "releve", "signature", "image00", "icon"
+]
+
+JUNK_NAME_TERMS = [
+    'application', 'job application', 'job offer', 'apply', 'applying', 'applicant',
+    'candidate', 'candidat', 'candidature', 'cv', 'resume', 'curriculum', 'vitae',
+    'hr', 'human resources', 'recruitment', 'recruiter', 'info', 'information',
+    'sales', 'support', 'admin', 'administrator', 'manager', 'contact', 'service',
+    'general applicant', 'unknown', 'me', 'sir', 'madam', 'dear',
+    'طلب توظيف', 'سيرة ذاتية', 'توظيف', 'تقديم', 'دعوة للمشاركة', 'دعوة', 'ملتقى'
+]
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
 
@@ -32,6 +77,45 @@ def decode_mime(raw):
     except Exception:
         return str(raw).strip()
 
+def clean_candidate_name(raw_name, email_address, attachment_filenames, body_text=""):
+    """Sanitize and clean candidate name, stripping junk terms like 'Application', 'Support', etc."""
+    name = (raw_name or "").strip().replace('"', '').replace("'", '')
+    name = re.sub(r'[\r\n\t]+', ' ', name).strip()
+    
+    is_junk = False
+    lower_name = name.lower()
+    if not name or len(name) < 3 or "@" in name or "=?" in name:
+        is_junk = True
+    elif any(lower_name == j or lower_name.startswith(j + " ") or lower_name.startswith(j + " as ") or lower_name.startswith(j + " for ") for j in JUNK_NAME_TERMS):
+        is_junk = True
+    elif any(w in lower_name for w in ['ali ghaith', 'alghaith', 'naceur']):
+        is_junk = True
+        
+    if not is_junk:
+        return name.title()
+
+    # Strategy 1: Extract from attachment filename (e.g. "Amr_Sherif_CV.pdf" -> "Amr Sherif")
+    for fn in attachment_filenames or []:
+        base = os.path.splitext(fn)[0]
+        base = re.sub(r'^\d+[\s_-]*', '', base)
+        base = re.sub(r'\b(?:cv|resume|certificat|diplome|passport|id|pdf|doc|docx|new|final|updated|202[0-9]|compressed|official)\b', '', base, flags=re.IGNORECASE)
+        base = re.sub(r'[_\.-]+', ' ', base).strip()
+        words = base.split()
+        if 2 <= len(words) <= 4 and all(len(w) >= 2 for w in words) and not any(w.lower() in JUNK_NAME_TERMS for w in words):
+            return base.title()
+
+    # Strategy 2: Extract from email local part (e.g. "amr.sh.saber@gmail.com" -> "Amr Sh Saber")
+    if email_address and "@" in email_address:
+        local_part = email_address.split("@")[0]
+        clean_local = re.sub(r'[\d_.-]+', ' ', local_part).strip()
+        words = clean_local.split()
+        if words:
+            formatted = " ".join([w.title() for w in words if len(w) > 1 and not w.isdigit()])
+            if formatted and len(formatted) > 2 and not any(formatted.lower() == j for j in JUNK_NAME_TERMS):
+                return formatted
+
+    return "Candidate Applicant"
+
 def extract_real_candidate(body_text, subject, attachments):
     clean_subj = re.sub(r'^(?:fwd?|re|tr|trans|إعادة توجيه)\s*:\s*', '', subject, flags=re.I).strip()
     
@@ -39,7 +123,7 @@ def extract_real_candidate(body_text, subject, attachments):
     if fwd_match:
         name = fwd_match.group(1).strip().replace('"', '').replace("'", "") if fwd_match.group(1) else ""
         email_addr = fwd_match.group(2).strip().lower()
-        if name and len(name) > 2 and "@" not in name and "naceur" not in name.lower() and "ghaith" not in name.lower():
+        if name and len(name) > 2 and "@" not in name and not any(w in name.lower() for w in ['naceur', 'ghaith', 'alghaith']):
             return name, email_addr, clean_subj
         elif email_addr:
             return email_addr.split('@')[0].replace('.', ' ').title(), email_addr, clean_subj
@@ -77,8 +161,8 @@ def run_fast_sync():
             _, msgs = mail.search(None, "ALL")
             e_ids = msgs[0].split() if msgs[0] else []
             
-            # Fast incremental: process latest 5 emails in 2 seconds
-            for e_id in e_ids[-5:]:
+            # Fast incremental: process latest 10 emails
+            for e_id in e_ids[-10:]:
                 try:
                     _, msg_data = mail.fetch(e_id, "(RFC822)")
                     if not msg_data or not isinstance(msg_data[0], tuple): continue
@@ -87,9 +171,20 @@ def run_fast_sync():
                     subj = decode_mime(msg.get("Subject", ""))
                     sender = decode_mime(msg.get("From", ""))
                     
+                    subj_lower = subj.lower()
+                    sender_lower = sender.lower()
+
+                    # 1. Skip system notices, bounces, auto-replies, and ignored senders
+                    if any(k in subj_lower for k in IGNORE_KEYWORDS):
+                        continue
+                    if any(s in sender_lower for s in IGNORED_SENDERS):
+                        continue
+
                     body = ""
                     attachments = []
                     cv_url = None
+                    valid_cv_found = False
+
                     for part in msg.walk():
                         if part.get_content_type() == 'text/plain' and 'attachment' not in str(part.get('Content-Disposition')):
                             try: body += part.get_payload(decode=True).decode('utf-8', errors='ignore')
@@ -97,11 +192,39 @@ def run_fast_sync():
                         fn = part.get_filename()
                         if fn and ('attachment' in str(part.get('Content-Disposition')) or 'inline' in str(part.get('Content-Disposition'))):
                             clean_fn = re.sub(r'[^a-zA-Z0-9._-]', '_', decode_mime(fn))
-                            attachments.append(clean_fn)
-                            if clean_fn.split('.')[-1].lower() in ['pdf', 'doc', 'docx', 'jpg', 'png']:
+                            lower_fn = clean_fn.lower()
+                            ext = lower_fn.split('.')[-1]
+                            
+                            file_data = part.get_payload(decode=True)
+                            # Must be at least 15KB (skip signature icons/tracking pixels)
+                            if not file_data or len(file_data) < 15000:
+                                continue
+                                
+                            # Skip invoices, receipts, banners, posters
+                            if any(junk in lower_fn for junk in JUNK_ATTACHMENT_KEYWORDS):
+                                continue
+
+                            # For images (.jpg, .png), ONLY allow if explicitly named as CV/ID
+                            if ext in ['jpg', 'jpeg', 'png']:
+                                if not any(w in lower_fn for w in ['cv', 'resume', 'passport', 'id', 'cin', 'candidat', 'diplom', 'certif', 'بطاقة', 'جواز', 'سيرة']):
+                                    continue
+
+                            if ext in ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png']:
+                                attachments.append(clean_fn)
                                 sp = f"email_imports/{e_id.decode()}_{clean_fn}"
-                                supabase.storage.from_("candidates").upload(sp, part.get_payload(decode=True), {"upsert": "true", "content-type": "application/pdf"})
+                                mime_type = "application/pdf" if ext == "pdf" else "application/octet-stream"
+                                supabase.storage.from_("candidates").upload(sp, file_data, {"upsert": "true", "content-type": mime_type})
                                 cv_url = f"{SUPABASE_URL}/storage/v1/object/public/candidates/{sp}"
+                                valid_cv_found = True
+
+                    # Check candidate qualification: must have valid CV or explicit job keywords
+                    has_job_keywords = any(w in subj_lower or w in body.lower() for w in ['cv', 'resume', 'job', 'apply', 'candidat', 'position', 'foreman', 'engineer', 'technician', 'welder', 'supervisor', 'سيرة', 'توظيف', 'انضمام', 'طلب عمل', 'لحام', 'مشرف'])
+                    if not valid_cv_found and not has_job_keywords:
+                        continue
+
+                    # If no valid attachments at all, skip unless explicit candidate body
+                    if not attachments and not has_job_keywords:
+                        continue
 
                     real_name, real_email, clean_pos = extract_real_candidate(body, subj, attachments)
                     
@@ -119,11 +242,10 @@ def run_fast_sync():
                     if not cand_email or cand_email in existing_emails or "alghaith" in cand_email:
                         continue
                     
-                    # Must have an attachment (CV) to be a candidate
-                    if not cv_url:
-                        continue
-
-                    cand_name = real_name or (sender.split("<")[0].replace('"', '').strip() or cand_email.split("@")[0].title())
+                    # Clean candidate name with sanitization
+                    raw_cand_name = real_name or sender.split("<")[0].replace('"', '').strip()
+                    cand_name = clean_candidate_name(raw_cand_name, cand_email, attachments, body)
+                    
                     if any(w in cand_name.lower() for w in ['ali ghaith', 'alghaith', 'naceur']):
                         continue
 
@@ -165,7 +287,7 @@ class handler(BaseHTTPRequestHandler):
             self.end_headers()
             self.wfile.write(json.dumps({
                 "status": "success",
-                "message": "Sync completed in 2 seconds",
+                "message": "Sync completed successfully",
                 "summary": results
             }, indent=2).encode('utf-8'))
         except Exception as err:
