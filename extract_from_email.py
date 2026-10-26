@@ -16,16 +16,55 @@ import argparse
 # ==============================================================================
 # 1. DATABASE & SERVER CONFIGURATION
 # ==============================================================================
-SUPABASE_URL = "https://gscehkviisvzwnxfiidu.supabase.co"
-SUPABASE_KEY = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdzY2Voa3ZpaXN2endueGZpaWR1Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc5MjE4NzEzNSwiZXhwIjoyMTA3NzYzMTM1fQ.elwCkRf0zDKVjZgF9vXhwFZNCjjUoNT9uDBBIw6yC3Q"
+SUPABASE_URL = os.getenv("SUPABASE_URL", "https://gscehkviisvzwnxfiidu.supabase.co")
+SUPABASE_KEY = os.getenv("SUPABASE_KEY", "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImdzY2Voa3ZpaXN2endueGZpaWR1Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc5MjE4NzEzNSwiZXhwIjoyMTA3NzYzMTM1fQ.elwCkRf0zDKVjZgF9vXhwFZNCjjUoNT9uDBBIw6yC3Q")
 
 IMAP_SERVER = "mail.alghaithcompanies.group"
 DEFAULT_EMAIL_USER = "hr@alghaithcompanies.group"
 DEFAULT_EMAIL_PASS = os.getenv("HR_EMAIL_PASSWORD", "alghaithHR@211260")
 
+# Comprehensive junk/ignore list: bounces, invoices, spam, invitations, security alerts
 IGNORE_KEYWORDS = [
-    "delivery status", "undelivered", "out of office", 
-    "autoresponder", "failure notice", "re: [notice]", "mailer-daemon", "spam", "mail delivery"
+    # System & Delivery
+    "delivery status", "undelivered", "out of office", "autoresponder", 
+    "failure notice", "re: [notice]", "mailer-daemon", "spam", "mail delivery",
+    "postmaster", "bounce", "mail delivery subsystem", "daemon",
+    # Verification & Security
+    "verification code", "verify your email", "security alert", "password reset", 
+    "reset your password", "code de vérification", "رمز التحقق", "two-factor", "2fa",
+    "login alert", "new sign-in", "cpanel", "webmail notification", "cron <",
+    # Invoices & Commercial
+    "invoice", "facture", "فاتورة", "receipt", "reçu", "quittance",
+    "payment", "paiement", "سداد", "دفعة", "bill", "billing", 
+    "statement of account", "relevé de compte", "كشف حساب",
+    "purchase order", "bon de commande", "order confirmation", "confirmation de commande",
+    "quotation", "devis", "عرض أسعار", "quote #", "estimate",
+    # Events & Marketing
+    "invitation", "دعوة", "conference", "ملتقى", "webinar", "workshop", "seminar",
+    "newsletter", "unsubscribe", "se désabonner", "opt-out", "promotions", 
+    "weekly digest", "daily digest", "marketing"
+]
+
+IGNORED_SENDERS = [
+    "mailer-daemon", "postmaster", "noreply", "no-reply", "notifications@",
+    "billing@", "support@", "newsletter@", "security@", "alert@",
+    "google.com", "microsoft.com", "apple.com", "facebook.com", "linkedin.com",
+    "cpanel.net", "hostinger.com", "godaddy.com"
+]
+
+JUNK_ATTACHMENT_KEYWORDS = [
+    "invoice", "facture", "receipt", "bill", "devis", "quote", "quotation",
+    "ticket", "reservation", "poster", "invitation", "banner", "logo", "flyer",
+    "statement", "releve", "signature", "image00", "icon"
+]
+
+JUNK_NAME_TERMS = [
+    'application', 'job application', 'job offer', 'apply', 'applying', 'applicant',
+    'candidate', 'candidat', 'candidature', 'cv', 'resume', 'curriculum', 'vitae',
+    'hr', 'human resources', 'recruitment', 'recruiter', 'info', 'information',
+    'sales', 'support', 'admin', 'administrator', 'manager', 'contact', 'service',
+    'general applicant', 'unknown', 'me', 'sir', 'madam', 'dear',
+    'طلب توظيف', 'سيرة ذاتية', 'توظيف', 'تقديم', 'دعوة للمشاركة', 'دعوة', 'ملتقى'
 ]
 
 supabase = create_client(SUPABASE_URL, SUPABASE_KEY)
@@ -241,14 +280,64 @@ def extract_education(text):
         return "High School"
     return "N/A"
 
+def clean_candidate_name(raw_name, email_address, attachment_filenames, body_text=""):
+    """Sanitize and clean candidate name, stripping junk terms like 'Application', 'Support', etc."""
+    name = (raw_name or "").strip().replace('"', '').replace("'", '')
+    name = re.sub(r'[\r\n\t]+', ' ', name).strip()
+    
+    is_junk = False
+    lower_name = name.lower()
+    if not name or len(name) < 3 or "@" in name or "=?" in name:
+        is_junk = True
+    elif any(lower_name == j or lower_name.startswith(j + " ") or lower_name.startswith(j + " as ") or lower_name.startswith(j + " for ") for j in JUNK_NAME_TERMS):
+        is_junk = True
+    elif 'ali ghaith' in lower_name or 'alghaith' in lower_name:
+        is_junk = True
+        
+    if not is_junk:
+        return name.title()
+
+    # Strategy 1: Extract from attachment filename (e.g. "Amr_Sherif_CV.pdf" -> "Amr Sherif")
+    for fn in attachment_filenames or []:
+        base = os.path.splitext(fn)[0]
+        # Remove numbers and ID prefixes like "156_" or timestamps
+        base = re.sub(r'^\d+[\s_-]*', '', base)
+        # Remove common document words
+        base = re.sub(r'\b(?:cv|resume|certificat|diplome|passport|id|pdf|doc|docx|new|final|updated|202[0-9]|compressed|official)\b', '', base, flags=re.IGNORECASE)
+        base = re.sub(r'[_\.-]+', ' ', base).strip()
+        words = base.split()
+        if 2 <= len(words) <= 4 and all(len(w) >= 2 for w in words) and not any(w.lower() in JUNK_NAME_TERMS for w in words):
+            return base.title()
+
+    # Strategy 2: Extract from email local part (e.g. "amr.sh.saber@gmail.com" -> "Amr Sh Saber")
+    if email_address and "@" in email_address:
+        local_part = email_address.split("@")[0]
+        clean_local = re.sub(r'[\d_.-]+', ' ', local_part).strip()
+        words = clean_local.split()
+        if words:
+            formatted = " ".join([w.title() for w in words if len(w) > 1 and not w.isdigit()])
+            if formatted and len(formatted) > 2 and not any(formatted.lower() == j for j in JUNK_NAME_TERMS):
+                return formatted
+
+    return "Candidate Applicant"
+
 def extract_specialty_and_position(subject, body):
-    subj_clean = subject.strip()
-    if len(subj_clean) > 75 or not subj_clean or any(k in subj_clean.lower() for k in ["cv", "resume", "application", "candidature"]):
-        for pos in ["Mechanical Engineer", "Electrical Engineer", "Civil Engineer", "HSE Officer", "Accountant", "Project Manager", "Technician", "Supervisor", "Driver", "Operator", "Welder", "Safety Officer"]:
-            if pos.lower() in body.lower():
-                return pos, pos
-        return subj_clean[:75] or "General Applicant", "N/A"
-    return subj_clean[:75], "N/A"
+    clean = re.sub(r'^(?:fwd?|re|tr|trans|إعادة توجيه)\s*:\s*', '', subject, flags=re.IGNORECASE).strip()
+    clean = re.sub(r'^(?:application\s*(?:for|as|to)?|candidature\s*(?:pour)?|طلب\s*(?:توظيف|عمل)?)\s*[:–-]?\s*', '', clean, flags=re.IGNORECASE).strip()
+    clean = re.sub(r'[\r\n\t]+', ' ', clean).strip()
+
+    for pos in [
+        "Mechanical Engineer", "Electrical Engineer", "Civil Engineer", "Petroleum Engineer",
+        "Instrumentation Technician", "Electrical Supervisor", "HSE Officer", "Safety Officer",
+        "Accountant", "Project Manager", "Site Supervisor", "Welder", "Driver", "Operator",
+        "Document Controller", "HR Specialist", "Technician", "Supervisor", "Foreman"
+    ]:
+        if pos.lower() in clean.lower() or pos.lower() in body.lower():
+            return pos, pos
+
+    if clean and len(clean) <= 50 and not any(junk in clean.lower() for junk in JUNK_NAME_TERMS):
+        return clean.title(), "N/A"
+    return "General Applicant", "N/A"
 
 # ==============================================================================
 # 4. MAIN INBOX PROCESSING PIPELINE WITH TIMEOUT RECOVERY
@@ -359,13 +448,18 @@ def process_inbox(email_user="hr@alghaithcompanies.group", email_pass="alghaithH
                 # 1. Parse Subject & Sender (Clean decoded MIME)
                 subject = decode_mime_text(msg.get("Subject", "Job Application"))
                 sender_raw = decode_mime_text(msg.get("From", ""))
+                sender_lower = sender_raw.lower()
+                subject_lower = subject.lower()
 
-                # Skip system notices, bounces, auto-replies
-                if any(k in subject.lower() for k in IGNORE_KEYWORDS):
+                # Skip system notices, bounces, auto-replies, and ignored senders
+                if any(k in subject_lower for k in IGNORE_KEYWORDS):
+                    skipped_junk_count += 1
+                    continue
+                if any(s in sender_lower for s in IGNORED_SENDERS):
                     skipped_junk_count += 1
                     continue
 
-                # 2. Parse Body & Attachments first
+                # 2. Parse Body & Attachments with strict junk elimination
                 body_text = ""
                 cv_filepath = None
                 id_document_filepath = None
@@ -386,27 +480,55 @@ def process_inbox(email_user="hr@alghaithcompanies.group", email_pass="alghaithH
                     if filename and ('attachment' in content_disp or 'inline' in content_disp):
                         clean_fn = clean_filename(decode_mime_text(filename))
                         ext = clean_fn.split('.')[-1].lower()
+                        lower_fn = clean_fn.lower()
 
                         if ext in ['pdf', 'doc', 'docx', 'jpg', 'jpeg', 'png']:
                             file_data = part.get_payload(decode=True)
+                            if not file_data or len(file_data) < 15000:
+                                # Skip tiny icons, signature images, tracking pixels (< 15 KB)
+                                continue
+
+                            # Skip invoices, receipts, tickets, flyers, posters
+                            if any(junk in lower_fn for junk in JUNK_ATTACHMENT_KEYWORDS):
+                                continue
+
+                            # For images (.jpg, .png), ONLY allow if explicitly named as CV/ID
+                            if ext in ['jpg', 'jpeg', 'png']:
+                                if not any(w in lower_fn for w in ['cv', 'resume', 'passport', 'id', 'cin', 'candidat', 'diplom', 'certif', 'بطاقة', 'جواز', 'سيرة']):
+                                    continue
+
                             storage_path = f"email_imports/{e_id.decode()}_{clean_fn}"
                             attachments_found.append((clean_fn, storage_path, file_data))
                             attachment_filenames.append(clean_fn)
 
-                has_job_keywords = any(w in subject.lower() or w in body_text.lower() for w in ['cv', 'resume', 'job', 'apply', 'candidat', 'position', 'foreman', 'engineer', 'technician', 'welder', 'supervisor', 'سيرة', 'توظيف', 'انضمام', 'طلب عمل', 'لحام', 'مشرف'])
-                if not attachments_found and not has_job_keywords:
+                # Account-specific check: info@ and alighaith@ receive supplier invoices, spam, invitations.
+                # Inboxes other than hr@ MUST have explicit candidate intent
+                is_hr_inbox = ("hr@" in email_user.lower())
+                is_explicit_candidate_subj = any(w in subject_lower for w in ['cv', 'resume', 'job application', 'candidature', 'طلب توظيف', 'سيرة ذاتية'])
+                is_forwarded_mail = any(p in subject_lower for p in ['fwd:', 'fw:', 'tr:', 'trans:']) or 'forwarded message' in body_text.lower() or 'من:' in body_text or 'de :' in body_text.lower()
+
+                if not is_hr_inbox and not (is_explicit_candidate_subj or is_forwarded_mail):
                     skipped_junk_count += 1
                     continue
 
-                # 3. Detect Forwarded Emails vs Direct Candidate Applications
-                is_forwarded = (
-                    any(p in subject.lower() for p in ['fwd:', 'fw:', 'tr:', 'trans:']) or
-                    'alghaith' in sender_raw.lower() or
-                    'forwarded message' in body_text.lower() or
-                    'من:' in body_text or
-                    'de :' in body_text.lower()
-                )
+                # Strict Candidate Qualification:
+                # Must have an attached CV document (.pdf, .doc, .docx or explicitly named CV image)
+                has_cv_attachment = any(fn.lower().split('.')[-1] in ['pdf', 'doc', 'docx'] or any(k in fn.lower() for k in ['cv', 'resume', 'سيرة']) for fn in attachment_filenames)
+                has_job_keywords = any(w in subject_lower or w in body_text.lower() for w in ['cv', 'resume', 'job', 'apply', 'candidat', 'position', 'foreman', 'engineer', 'technician', 'welder', 'supervisor', 'سيرة', 'توظيف', 'انضمام', 'طلب عمل', 'لحام', 'مشرف'])
 
+                if not has_cv_attachment and not (has_job_keywords and is_explicit_candidate_subj):
+                    skipped_junk_count += 1
+                    continue
+
+                # If no attachments found, skip unless body explicitly has candidate credentials
+                if not attachments_found:
+                    has_explicit_candidate_body = is_explicit_candidate_subj and any(w in body_text.lower() for w in ['experience', 'diplome', 'education', 'skills', 'خبرة', 'مؤهل'])
+                    if not has_explicit_candidate_body:
+                        skipped_junk_count += 1
+                        continue
+
+                # 3. Detect Forwarded Emails vs Direct Candidate Applications
+                is_forwarded = is_forwarded_mail or 'alghaith' in sender_lower
                 fwd_name, fwd_email, clean_subj = extract_forwarded_candidate_info(sender_raw, subject, body_text, attachment_filenames)
 
                 email_match = re.search(r'[\w\.-]+@[\w\.-]+', sender_raw)
@@ -431,15 +553,12 @@ def process_inbox(email_user="hr@alghaithcompanies.group", email_pass="alghaithH
                     duplicate_count += 1
                     continue
 
+                # Clean and Sanitize Candidate Name
                 if is_forwarded and fwd_name:
-                    candidate_name = fwd_name
+                    candidate_name = clean_candidate_name(fwd_name, candidate_email, attachment_filenames, body_text)
                 else:
-                    candidate_name = sender_raw.split("<")[0].replace('"', '').replace("'", '').strip()
-                    if not candidate_name or "@" in candidate_name or "=?" in candidate_name or any(w in candidate_name.lower() for w in ['ali ghaith', 'alghaith', 'naceur']):
-                        if attachment_filenames:
-                            candidate_name = os.path.splitext(attachment_filenames[0])[0].replace('_', ' ').title()
-                        else:
-                            candidate_name = candidate_email.split("@")[0].replace(".", " ").title()
+                    raw_extracted = sender_raw.split("<")[0].replace('"', '').replace("'", '').strip()
+                    candidate_name = clean_candidate_name(raw_extracted, candidate_email, attachment_filenames, body_text)
 
                 if any(w in candidate_name.lower() for w in ['ali ghaith', 'alghaith', 'naceur']):
                     skipped_junk_count += 1
